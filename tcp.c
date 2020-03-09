@@ -27,7 +27,7 @@ int srv_listen(short port) {
     int fd;
     struct sockaddr_in srv_addr;
     struct sockaddr_in cli_addr;
-    int cli_len = sizeof(cli_addr);
+    socklen_t cli_len = sizeof(cli_addr);
     srand(time(NULL));
     
     fd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -76,7 +76,7 @@ int srv_listen(short port) {
         create_pkg(pkg, seg);
 
         /* send to client */
-        if (sendto(fd, pkg, PKG_LEN, 0, (struct sockaddr*)&cli_addr, &cli_len) == -1) return -1;
+        if (sendto(fd, pkg, PKG_LEN, 0, (struct sockaddr*)&cli_addr, sizeof(cli_addr)) < 0) return -1;
         printf("Server send a SYN/ACK packet to %s : %hu\n", inet_ntoa(cli_addr.sin_addr), pseg->dest_port);
     } else {
         fprintf(stderr, "SYN bit in the packet is not set! \n");
@@ -113,7 +113,7 @@ int cli_connect(char* srv_ip, short srv_port) {
     int fd;
     struct sockaddr_in cli_sock;
     struct sockaddr_in srv_sock;
-    int srv_len = sizeof(srv_sock);
+    socklen_t srv_len = sizeof(srv_sock);
     srand(time(NULL));
 
     /* configure server socket address structure */
@@ -182,6 +182,9 @@ int cli_connect(char* srv_ip, short srv_port) {
     return fd;
 }
 
+/* 2 scenarios */
+/* client in active close state send FIN packet */
+/* server after close wait, in last ack send FIN packet */
 bool isfin(int fd) {
     struct sockaddr_in dest_addr;
     dest_addr = (my_role == client ? glb_srv_addr : glb_cli_addr);
@@ -204,4 +207,57 @@ bool isfin(int fd) {
     if (sendto(fd, pkg, PKG_LEN, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr)) < 0) return -1;
     printf("Send an ACK packet to %s : %hu\n", inet_ntoa(dest_addr.sin_addr), seg.dest_port);
     return true;
+}
+
+
+/*
+    client/server active close a tcp connection
+    @param fd socket file descriptor
+    @return success -> return 0
+            error -> return -1
+*/
+int cli_close(int fd) {
+    struct sockaddr_in dest_sock;
+    socklen_t dest_len = sizeof(dest_sock);
+    dest_sock = (my_role == server ? glb_cli_addr : glb_srv_addr);
+
+    short dest_port = ntohs(dest_sock.sin_port);
+    short src_port = (dest_port == SERVER_PORT ? CLIENT_PORT : SERVER_PORT);
+    /* send FIN packet */
+    memset(&seg, 0, sizeof(seg));   // reset segment header data
+    seg.src_port = src_port;
+    seg.dest_port = dest_port;
+    seg.seq_num = pseg->ack_num;
+    seg.ack_num = pseg->seq_num + 1;
+    seg.fin = 1;
+    create_pkg(pkg, seg);
+
+    if (sendto(fd, pkg, PKG_LEN, 0, (struct sockaddr*)&dest_sock, sizeof(dest_sock)) < 0) return -1;
+    printf("Send an FIN packet to %s : %hu\n", inet_ntoa(dest_sock.sin_addr), dest_port);
+
+    // wait for ack packet from destination
+    recvfrom(fd, pkg, PKG_LEN, 0, (struct sockaddr*)&dest_sock, &dest_len);
+    pseg = get_segment(pkg, header);
+
+    if (pseg->ack && pseg->ack_num == seg.seq_num + 1) {
+        printf("Received an ACK packet from %s : %hu\n", inet_ntoa(dest_sock.sin_addr), pseg->src_port);
+        printf("\t Get a packet (seq = %d , ack = %d)\n", pseg->seq_num, pseg->ack_num);
+    }
+    return 0;
+}
+
+
+/*
+    receive a packet from destination host
+    @param fd socket file descriptor
+    @return PKG_LEN
+*/
+int receive_packet(int fd) {
+    struct sockaddr_in src_sock = (my_role == server ? glb_cli_addr : glb_srv_addr);
+    socklen_t src_len = sizeof(src_sock);
+
+    recvfrom(fd, pkg, PKG_LEN, 0, (struct sockaddr*)&src_sock, &src_len);
+    pseg = get_segment(pkg, header);
+
+    return PKG_LEN;
 }
