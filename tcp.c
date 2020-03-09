@@ -181,3 +181,27 @@ int cli_connect(char* srv_ip, short srv_port) {
     my_role = client;
     return fd;
 }
+
+bool isfin(int fd) {
+    struct sockaddr_in dest_addr;
+    dest_addr = (my_role == client ? glb_srv_addr : glb_cli_addr);
+    /* get segment header data from the current packet */
+    pseg = get_segment(pkg, header);
+    if (!pseg->fin) return false;
+    printf("Received a FIN packet from %s : %hu\n", inet_ntoa(dest_addr.sin_addr), pseg->src_port);
+    printf("\t Get a packet (seq = %d , ack = %d)\n", pseg->seq_num, pseg->ack_num);
+
+    /* send back an ack packet to fin */
+    memset(&seg, 0, sizeof(seg));   // reset the segment header data
+    seg.src_port = pseg->dest_port;
+    seg.dest_port = pseg->src_port;
+    seg.seq_num = pseg->ack_num;
+    seg.ack_num = pseg->seq_num + 1;
+    seg.ack = 1;
+    create_pkg(pkg, seg);
+
+    /* send to destination socket address */
+    if (sendto(fd, pkg, PKG_LEN, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr)) < 0) return -1;
+    printf("Send an ACK packet to %s : %hu\n", inet_ntoa(dest_addr.sin_addr), seg.dest_port);
+    return true;
+}
