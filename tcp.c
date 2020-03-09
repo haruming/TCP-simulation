@@ -110,5 +110,74 @@ int srv_listen(short port) {
             fail -> -1
 */
 int cli_connect(char* srv_ip, short srv_port) {
-    
+    int fd;
+    struct sockaddr_in cli_sock;
+    struct sockaddr_in srv_sock;
+    int srv_len = sizeof(srv_sock);
+    srand(time(NULL));
+
+    /* configure server socket address structure */
+    /* The inet_pton() function converts a presentation format address (that is,
+     printable form as held in a character string) to network format (usually
+     a struct in_addr or some other internal binary representation, in network
+     byte order) */
+    if (inet_pton(AF_INET, srv_ip, &srv_sock.sin_addr) == 0) return -1;
+    srv_sock.sin_family = AF_INET;
+    srv_sock.sin_port = htons(srv_port);    // Convert 16-bit positive integers from host to network byte order.
+
+    /* configure client socket address structure */
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return -1;
+
+    memset(&cli_sock, 0, sizeof(cli_sock));
+    cli_sock.sin_family = AF_INET;
+    cli_sock.sin_addr.s_addr = htonl(INADDR_ANY);     // Convert 32-bit from host to network byte order and get local host ip
+    cli_sock.sin_port = htons(CLIENT_PORT);     // self-defined client port
+
+    if (bind(fd, (struct sockaddr*)&cli_sock, sizeof(cli_sock)) < 0) return -1;
+
+    /* establish the connection with server */
+
+    /* client send SYN packet */
+    memset(&seg, 0, sizeof(seg));   // reset the segment data
+    seg.src_port = CLIENT_PORT;
+    seg.dest_port = srv_port;
+    seg.seq_num = (short)(rand() % 10000);
+    seg.syn = 1;
+    /* copy segment header data into packet */
+    create_pkg(pkg, seg);
+
+    /* send to server */
+    if (sendto(fd, pkg, PKG_LEN, 0, (struct sockaddr*)&srv_sock, sizeof(srv_sock)) < 0) return -1;
+    printf("Client send a SYN packet to %s : %hu\n", srv_ip, srv_port);
+
+    /* wait for an ack from server */
+    recvfrom(fd, pkg, PKG_LEN, 0, (struct sockaddr*)&srv_sock, &srv_len);
+    printf("Client received a SYN/ACK packet from %s : %hd\n", inet_ntoa(srv_sock.sin_addr), ntohs(srv_sock.sin_port));
+
+    /* get segment header data */
+    pseg = get_segment(pkg, header);
+    printf("\t Get a packet (seq = %d , ack = %d)\n", pseg->seq_num, pseg->ack_num);
+    /* parse data from segment */
+    if (pseg->syn && pseg->ack && pseg->ack_num == seg.seq_num + 1) {
+        // set segment data
+        seg.src_port = CLIENT_PORT;
+        seg.dest_port = srv_port;
+        seg.syn = 0;
+        seg.ack = 1;
+        seg.ack_num = pseg->seq_num + 1;
+        seg.seq_num = pseg->ack_num;
+        create_pkg(pkg, seg);
+        if (sendto(fd, pkg, PKG_LEN, 0, (struct sockaddr*)&srv_sock, sizeof(srv_sock)) < 0) return -1;
+        printf("Client send an ACK packet to %s : %hu\n", srv_ip, srv_port);
+    } else {
+        fprintf(stderr, "expected ACK number not found. \n");
+        return -1;
+    }
+    glb_srv_addr = srv_sock;
+    glb_cli_addr = cli_sock;
+    printf("Complete three way handshake\n");
+    printf("==========\n");
+    my_role = client;
+    return fd;
 }
