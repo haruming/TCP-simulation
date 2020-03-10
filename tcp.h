@@ -46,10 +46,10 @@ extern char header[HEADER_LEN];        // package header
 extern Segment seg;                    // variable storing TCP segment
 extern PSegment pseg;                  // pointer to the segment
 
-int send_data(int, char*, int);      // send data
-int receive_data(int);               // receive data
+int send_packet(int, char*, int);      // send data
+int receive_packet(int);               // receive data
 int close(int);                 // terminate a tcp connection
-bool is_final(int);
+bool isfin(int);
 
 int srv_listen(short);              // server listen for connection on a given port
 int cli_connect(char*, short);      // client connect to server by given the IP address and port

@@ -216,7 +216,7 @@ bool isfin(int fd) {
     @return success -> return 0
             error -> return -1
 */
-int cli_close(int fd) {
+int close(int fd) {
     struct sockaddr_in dest_sock;
     socklen_t dest_len = sizeof(dest_sock);
     dest_sock = (my_role == server ? glb_cli_addr : glb_srv_addr);
